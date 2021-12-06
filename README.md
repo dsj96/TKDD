@@ -1,5 +1,5 @@
 # CTVI-master
-For  ICDM 2021. Accepted as short paper.
+For  TITS.
 
 The implementation of the CTVI model(**C**itywide **T**raffic **V**olume **I**nference).
 
