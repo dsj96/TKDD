@@ -44,6 +44,9 @@ def objective(trial):
         "epochs" : trial.suggest_int('epochs',  10, 10),
         "hy_RW"  : trial.suggest_uniform('hy_RW' , 0.1, 10),
         "hy_volume_current" : trial.suggest_uniform('hy_volume_current' , 0.1, 10),
+        "hy_volume_recent"  : trial.suggest_uniform('hy_volume_recent' , 0.1, 10),
+        "hy_volume_daily"   : trial.suggest_uniform('hy_volume_daily' ,  0.1, 10),
+        "hy_volume_weekly"  : trial.suggest_uniform('hy_volume_weekly' ,  0.1, 10),
     }
 
     args = get_args()
@@ -152,8 +155,184 @@ def objective_volume_current(train_ways_segment_volume_dict, train_ways_segment_
     return loss_term
 
 
+def objective_volume_recent(train_ways_segment_volume_dict, train_ways_segment_vec_dict, topk, negk):
+    pre_volume  = []
+    true_volume = []
+    loss_term = 0.
+
+    for k1,v1 in train_ways_segment_vec_dict.items():
+        num_slice = v1.shape[0]
+
+        for i in range(num_slice):
+            recent_score_dict, period_score_dict = {}, {}
+            for k2, v2 in train_ways_segment_vec_dict.items():
+                if(k1 != k2):
+                    if i>=2:
+                        recent_score = torch.cosine_similarity(v1[i-1], v2[i-1], dim=-1)
+                        period_score = torch.cosine_similarity(v1[i-2], v2[i-2], dim=-1)
+                        recent_score_dict[k2] = recent_score
+                        period_score_dict[k2] = period_score
+
+                    elif i==1:
+                        recent_score = torch.cosine_similarity(v1[i-1], v2[i-1], dim=-1)
+                        recent_score_dict[k2] = recent_score
+            recent_sum_volume_max, recent_sum_sim_score  =  0, .0
+            period_sum_volume_max, period_sum_sim_score  =  0, .0
+
+            if i == 1:
+                recent_sorted_score_dict_max = sorted(recent_score_dict.items(), key=lambda item:item[1], reverse = True)[:topk]
+                for truple in recent_sorted_score_dict_max:
+                    recent_sum_volume_max = recent_sum_volume_max + train_ways_segment_volume_dict[truple[0]][i-1]*truple[1]
+                    recent_sum_sim_score = recent_sum_sim_score + truple[1]
+                recent_pre_volume = recent_sum_volume_max / recent_sum_sim_score
+                loss_term = abs((train_ways_segment_volume_dict[k1][i] - recent_pre_volume))**3 + loss_term
+
+            if i >= 2:
+                recent_sorted_score_dict_max = sorted(recent_score_dict.items(), key=lambda item:item[1], reverse = True)[:topk]
+                period_sorted_score_dict_max = sorted(period_score_dict.items(), key=lambda item:item[1], reverse = True)[:topk]
+
+                for truple in recent_sorted_score_dict_max:
+                    recent_sum_volume_max = recent_sum_volume_max + train_ways_segment_volume_dict[truple[0]][i-1]*truple[1]
+                    recent_sum_sim_score = recent_sum_sim_score + truple[1]
+                recent_pre_volume = recent_sum_volume_max / recent_sum_sim_score
+                loss_term = abs((train_ways_segment_volume_dict[k1][i] - recent_pre_volume))**3 + loss_term
+
+                for truple in period_sorted_score_dict_max:
+                    period_sum_volume_max = period_sum_volume_max + train_ways_segment_volume_dict[truple[0]][i-2]*truple[1]
+                    period_sum_sim_score = period_sum_sim_score + truple[1]
+                period_pre_volume = period_sum_volume_max/period_sum_sim_score
+                loss_term = abs((train_ways_segment_volume_dict[k1][i] - period_pre_volume)) + loss_term
+
+    return loss_term
+
+def objective_volume_daily(train_ways_segment_volume_dict, train_ways_segment_vec_dict, topk, negk):
+    pre_volume  = []
+    true_volume = []
+    loss_term = 0.
+    for k1,v1 in train_ways_segment_vec_dict.items():
+        num_slice = v1.shape[0]
+        daily1_score_dict, daily2_score_dict = {}, {}
+        for i in range(num_slice):
+            for k2, v2 in train_ways_segment_vec_dict.items():
+                if(k1 != k2):
+                    if i < 12:
+                        break
+                    elif i < 12*2:
+                        daily1_score   = torch.cosine_similarity(v1[i-12], v2[i-12], dim=-1)
+                        daily1_score_dict[k2]   = daily1_score
+                    else:
+                        daily1_score   = torch.cosine_similarity(v1[i-12], v2[i-12], dim=-1)
+                        daily2_score   = torch.cosine_similarity(v1[i-12*2], v2[i-12*2], dim=-1)
+                        daily1_score_dict[k2]  = daily1_score
+                        daily2_score_dict[k2]  = daily2_score
+
+            daily1_sum_volume_max, daily1_sum_sim_score  =  0, .0
+            daily2_sum_volume_max, daily2_sum_sim_score  =  0, .0
+
+            if i < 12:
+                continue
+            elif i < 12*2:
+                daily1_sorted_score_dict_max = sorted(daily1_score_dict.items(), key=lambda item:item[1], reverse = True)[:topk]
+
+                for truple in daily1_sorted_score_dict_max:
+                    daily1_sum_volume_max = daily1_sum_volume_max + train_ways_segment_volume_dict[truple[0]][i-12]*truple[1]
+                    daily1_sum_sim_score = daily1_sum_sim_score + truple[1]
+                daily1_pre_volume = daily1_sum_volume_max / daily1_sum_sim_score
+                loss_term = abs(train_ways_segment_volume_dict[k1][i] - daily1_pre_volume)**3 + loss_term
+
+            else:
+                daily1_sorted_score_dict_max = sorted(daily1_score_dict.items(), key=lambda item:item[1], reverse = True)[:topk]
+                daily2_sorted_score_dict_max = sorted(daily2_score_dict.items(), key=lambda item:item[1], reverse = True)[:topk]
+
+                for truple in daily1_sorted_score_dict_max:
+                    daily1_sum_volume_max = daily1_sum_volume_max + train_ways_segment_volume_dict[truple[0]][i-12]*truple[1]
+                    daily1_sum_sim_score = daily1_sum_sim_score + truple[1]
+                daily1_pre_volume = daily1_sum_volume_max / daily1_sum_sim_score
+                loss_term = abs(train_ways_segment_volume_dict[k1][i] - daily1_pre_volume)**3 + loss_term
+
+                for truple in daily2_sorted_score_dict_max:
+                    daily2_sum_volume_max = daily2_sum_volume_max + train_ways_segment_volume_dict[truple[0]][i-48]*truple[1]
+                    daily2_sum_sim_score = daily2_sum_sim_score + truple[1]
+                daily2_pre_volume = daily2_sum_volume_max / daily2_sum_sim_score
+                loss_term = abs((train_ways_segment_volume_dict[k1][i] - daily2_pre_volume))**3 + loss_term
+    return loss_term
 
 
+def objective_volume_weekly(train_ways_segment_volume_dict, train_ways_segment_vec_dict, topk, negk):
+    pre_volume  = []
+    true_volume = []
+    loss_term   = 0.
+
+    for k1,v1 in train_ways_segment_vec_dict.items():
+        num_slice = v1.shape[0]
+        weekly1_score_dict, weekly2_score_dict = {}, {}
+        for i in range(num_slice):
+            for k2, v2 in train_ways_segment_vec_dict.items():
+                if(k1 != k2):
+                    if i < 12*7:
+                        break
+                    elif i < 12*14:
+                        weekly1_score   = torch.cosine_similarity(v1[i-12*7], v2[i-12*7], dim=-1)
+                        weekly1_score_dict[k2]   = weekly1_score
+                    else:
+                        weekly1_score   = torch.cosine_similarity(v1[i-12*7], v2[i-12*7], dim=-1)
+                        weekly2_score   = torch.cosine_similarity(v1[i-12*14], v2[i-12*14], dim=-1)
+                        weekly1_score_dict[k2]  = weekly1_score
+                        weekly2_score_dict[k2]  = weekly2_score
+
+            weekly1_sum_volume_max, weekly1_sum_sim_score  =  0, .0
+            weekly2_sum_volume_max, weekly2_sum_sim_score  =  0, .0
+
+            if i < 12*7:
+                break
+            elif i < 12*14:
+                weekly1_sorted_score_dict_max = sorted(weekly1_score_dict.items(), key=lambda item:item[1], reverse = True)[:topk]
+
+                for truple in weekly1_sorted_score_dict_max:
+                    weekly1_sum_volume_max = weekly1_sum_volume_max + train_ways_segment_volume_dict[truple[0]][i-12*7]*truple[1]
+                    weekly1_sum_sim_score = weekly1_sum_sim_score + truple[1]
+                weekly1_pre_volume = weekly1_sum_volume_max / weekly1_sum_sim_score
+                loss_term = abs(train_ways_segment_volume_dict[k1][i] - weekly1_pre_volume)**3 + loss_term
+
+            else:
+                weekly1_sorted_score_dict_max = sorted(weekly1_score_dict.items(), key=lambda item:item[1], reverse = True)[:topk]
+                weekly2_sorted_score_dict_max = sorted(weekly2_score_dict.items(), key=lambda item:item[1], reverse = True)[:topk]
+
+                for truple in weekly1_sorted_score_dict_max:
+                    weekly1_sum_volume_max = weekly1_sum_volume_max + train_ways_segment_volume_dict[truple[0]][i-12*7]*truple[1]
+                    weekly1_sum_sim_score = weekly1_sum_sim_score + truple[1]
+                weekly1_pre_volume = weekly1_sum_volume_max / weekly1_sum_sim_score
+                loss_term = abs(train_ways_segment_volume_dict[k1][i] - weekly1_pre_volume)**3 + loss_term
+
+                for truple in weekly2_sorted_score_dict_max:
+                    weekly2_sum_volume_max = weekly2_sum_volume_max + train_ways_segment_volume_dict[truple[0]][i-12*14]*truple[1]
+                    weekly2_sum_sim_score = weekly2_sum_sim_score + truple[1]
+                weekly2_pre_volume = weekly2_sum_volume_max / weekly2_sum_sim_score
+                loss_term = abs((train_ways_segment_volume_dict[k1][i] - weekly2_pre_volume))**3 + loss_term
+    return loss_term
+
+
+
+
+
+
+def objective_rw( train_ways_segment_vec_dict, negk, adj_weight_dict, output, vocab_list, word_freqs):
+
+    loss_term = torch.tensor(0.,dtype=torch.float32)
+    for k1,v1 in train_ways_segment_vec_dict.items():
+        negative_list = []
+        cur_adj = adj_weight_dict[k1] # {    0: {1: {'weight': 0.7310585786300049}, 131: {'weight': 0.7310585786300049}}     }
+        while( len(set(negative_list) - set(cur_adj.keys())) < negk ):
+            negative_list = random.choices(population=vocab_list, weights=word_freqs, k=negk)
+        positive_embedding = output[:, list(cur_adj.keys())]
+        weight_positive_tensor = torch.tensor([item["weight"] for item in list(cur_adj.values())],dtype=torch.float32).unsqueeze(0)
+        cur_embedding = output[:,k1]
+        negative_embedding = output[:, negative_list]
+
+        cur_loss_term =  - torch.sum(F.logsigmoid(torch.cosine_similarity( positive_embedding, cur_embedding.unsqueeze(1), dim=-1).unsqueeze(1) )) \
+                         - torch.sum(torch.log( 1. - torch.sigmoid(torch.cosine_similarity(negative_embedding, cur_embedding.unsqueeze(1), dim=-1 ) ) ))
+        loss_term = loss_term + cur_loss_term
+    return loss_term
 
 
 def train_regression(model, train_features, train_ways_segment_volume_dict,
@@ -206,17 +385,21 @@ def train_regression(model, train_features, train_ways_segment_volume_dict,
 
         for i, item in enumerate(train_ways_segment_list):
             train_ways_segment_vec_dict[item] = output[:, item, :]
-            
-        loss_train_rw = objective_rw(train_ways_segment_vec_dict, args.negk, adj_weight_dict, output, vocab_list, word_freqs)
         loss_train_volume_current = objective_volume_current(train_ways_segment_volume_dict, train_ways_segment_vec_dict, args.topk, args.negk)
+        loss_train_volume_recent  = objective_volume_recent(train_ways_segment_volume_dict, train_ways_segment_vec_dict, args.topk, args.negk)
+        loss_train_volume_daily   = objective_volume_daily(train_ways_segment_volume_dict, train_ways_segment_vec_dict, args.topk, args.negk)
+        loss_train_volume_weekly  = objective_volume_weekly(train_ways_segment_volume_dict, train_ways_segment_vec_dict, args.topk, args.negk)
 
-        loss = hy_volume_current*loss_train_volume_current + hy_RW*loss_train_rw
+        loss_train_rw = objective_rw(train_ways_segment_vec_dict, args.negk, adj_weight_dict, output, vocab_list, word_freqs)
+        loss = hy_volume_current*loss_train_volume_current + hy_volume_recent*loss_train_volume_recent + \
+               hy_RW*loss_train_rw +  \
+               hy_volume_daily*loss_train_volume_daily + hy_volume_weekly*loss_train_volume_weekly
 
         loss.backward()
         optimizer.step()
 
         if (epoch) % 2 == 0:
-            print('Validating...')
+            print('validing...')
             with open('jinan/valid_log.txt', 'a', encoding='utf-8') as f:
                 with torch.no_grad():
                     train_ways_segment_vec_dict = {}
@@ -314,4 +497,3 @@ if __name__=="__main__":
     # fig = optuna.visualization.plot_parallel_coordinate(study, params=['hy_RW', 'hy_volume_current', 'hy_volume_recent', 'hy_volume_daily', 'hy_volume_weekly'])
     # py.offline.plot(fig,auto_open=True) # filename="iris1.html"
     # print('over!')
-
