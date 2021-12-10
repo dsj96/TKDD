@@ -1,4 +1,4 @@
-# CTVI-master
+# CTVI
 For  TITS.
 
 The implementation of the CTVI model(**C**itywide **T**raffic **V**olume **I**nference).
@@ -12,7 +12,7 @@ Paper: ```Temporal Multi-view Graph Convolutional Networks for Citywide Traffic 
 
 ## Clone this repo
 ```
-git clone https://github.com/dsj96/CTVI-master.git
+git clone https://github.com/dsj96/TITS.git
 ```
 
 ## Function
