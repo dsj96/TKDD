@@ -12,7 +12,7 @@ Paper: ```Temporal Multi-view Graph Convolutional Networks for Citywide Traffic 
 
 ## Clone this repo
 ```
-git clone https://github.com/dsj96/TITS.git
+git clone https://github.com/dsj96/TKDD.git
 ```
 
 ## Function
